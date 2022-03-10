@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -e
+
+echo Installing slitherup...
+
+SLITHER_DIR=${SLITHER_DIR-"$HOME/.slither"}
+SLITHER_BIN_DIR="$SLITHER_DIR/bin"
+
+SLITHERUP='#!/usr/bin/env bash
+set -e
+
+SLITHER_DIR=${SLITHER_DIR-"$HOME/.slither"}
+SLITHER_BIN_DIR="$SLITHER_DIR/bin"
+
+while [[ $1 ]]; do
+  case $1 in
+    --)               shift; break;;
+
+    -r|--repo)        shift; SLITHERUP_REPO=$1;;
+    -b|--branch)      shift; SLITHERUP_BRANCH=$1;;
+    -v|--version)     shift; SLITHERUP_VERSION=$1;;
+    -h|--help)        SLITHERUP_HELP="1";;
+
+    *) printf "slitherup: internal error: %q\\n" "$1"; exit 1
+  esac; shift
+done
+
+if [[ "$SLITHERUP_HELP" == "1" ]]; then
+    echo "Update or revert to a specific Slither branch with ease.
+
+USAGE:
+    slitherup <OPTIONS>
+
+OPTIONS:
+    -h, --help      Print help information
+    -b, --branch    Install a specific branch
+    -r, --repo      Install a forks main branch"
+    exit 0
+fi
+
+SLITHERUP_REPO=${SLITHERUP_REPO-crytic/slither}
+
+SLITHERUP_BRANCH=${SLITHERUP_BRANCH-master}
+
+REPO_PATH="${SLITHER_DIR}/${SLITHERUP_REPO}"
+
+if [ -d $REPO_PATH ]; then
+    # If the repo path exists move to it and do a force checkout, discarding any local changes
+    cd $REPO_PATH
+    git fetch
+    echo $SLITHERUP_BRANCH
+    git reset --hard origin/${SLITHERUP_BRANCH}
+else
+    # Repo path did not exist, grab the author from the repo, make a directory in .slither, cd to it and clone.
+    IFS="/" read -ra AUTHOR <<< "$SLITHERUP_REPO"
+    mkdir -p "$SLITHER_DIR/$AUTHOR"
+    cd "$SLITHER_DIR/$AUTHOR"
+    git clone https://github.com/${SLITHERUP_REPO}
+    cd $REPO_PATH
+    git checkout ${SLITHERUP_BRANCH}
+fi
+
+# Build the repo and install it locally to the .slither bin directory.
+pip install .
+
+echo slitherup: done!'
+
+BINARY="$SLITHER_BIN_DIR/slitherup"
+
+# Create the .slither bin directory and slitherup binary if it doesn't exist.
+mkdir -p $SLITHER_BIN_DIR
+echo "$SLITHERUP" > $BINARY
+chmod +x $BINARY
+
+# Store the correct profile file (i.e. .profile for bash or .zshrc for ZSH).
+case $SHELL in
+*/zsh)
+    PROFILE=$HOME/.zshrc
+    PREF_SHELL=zsh
+    ;;
+*/bash)
+    PROFILE=$HOME/.bashrc
+    PREF_SHELL=bash
+    ;;
+*/fish)
+    PROFILE=$HOME/.config/fish/config.fish
+    PREF_SHELL=fish
+    ;;
+*)
+    echo "slitherup: could not detect shell, manually add ${SLITHER_BIN_DIR} to your PATH."
+    exit 1
+esac
+
+# Only add slitherup if it isn't already in PATH.
+if [[ ":$PATH:" != *":${SLITHER_BIN_DIR}:"* ]]; then
+    # Add the slitherup directory to the path and ensure the old PATH variables remain.
+    echo >> $PROFILE && echo "export PATH=\"\$PATH:$SLITHER_BIN_DIR\"" >> $PROFILE
+fi
+
+echo && echo "Detected your preferred shell is ${PREF_SHELL} and added slitherup to PATH. Run 'source ${PROFILE}' or start a new terminal session to use slitherup."
+echo "Then, simply run 'slitherup' to install Slither."
